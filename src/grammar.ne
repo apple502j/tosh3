@@ -1,9 +1,12 @@
 @{%
 const moo = require("moo");
+const {blocksDefinition, aliases} = require("./blocks.js");
+
+const BOOL_EMPTY = Symbol.for("tosh3.grammar.BOOL_EMPTY");
 
 const normalizeNumber = x => Number(x).toString();
 
-const lexer = moo.compile({
+const lexer = moo.compile(Object.assign({
   NL: {
     match: '\n',
     lineBreaks: true
@@ -14,7 +17,7 @@ const lexer = moo.compile({
     value: x => x.slice(2)
   },
   number: {
-    match: /-?[0-9]+(?:\.[0-9]+)?e-?[0-9]+|-?(?:0|[1-9][0-9]*)?\.[0-9]+|-?(?:0|[1-9][0-9]*)\.[0-9]*|0|-?[1-9][0-9]*|0b[01]+|0o[0-7]+|0x[0-9a-fA-F]+/,
+    match: /-?[0-9]+(?:\.[0-9]+)?e-?[0-9]+|-?(?:0|[1-9][0-9]*)?\.[0-9]+|-?(?:0|[1-9][0-9]*)\.[0-9]*|0b[01]+|0o[0-7]+|0x[0-9a-fA-F]+|0|-?[1-9][0-9]*/,
     value: normalizeNumber
   },
   string: {
@@ -35,19 +38,20 @@ const lexer = moo.compile({
   untilsyntax: 'until',
   repeatsyntax: 'repeat',
   foreversyntax: 'forever',
-  op1arg: ['looks_say'],
-  rep0arg: ['sensing_mousex', 'sensing_mousey'],
-  bool0arg: ['sensing_mousedown'],
-  hat0arg: ['event_whenflagclicked', 'event_whenthisspriteclicked', 'control_start_as_clone'],
-  hat1arg: ['event_whenkeypressed', 'event_whenbackdropswitchesto', 'event_whenbroadcastreceived']
-});
+  procedurecallsyntax: 'procedure_call',
+  proceduredefinesyntax: 'define',
+  procedurewarpsyntax: 'warp',
+  booltype: 'boolean',
+  reportertype: 'reporter'
+}, blocksDefinition));
 
 const skip = () => null;
 
-const IGNORE = ["lparen", "rparen", "lbracket", "rbracket", "elsesyntax"]
+const IGNORE = ["lparen", "rparen", "lbracket", "rbracket", "elsesyntax", "comma"]
 
 const genOpcode = opOverwrite => args => {
   let op = args.shift();
+  if (aliases[op]) op = aliases[op];
   if (opOverwrite) op = opOverwrite;
   const actualArgs = args.filter(arg => arg && !IGNORE.includes(arg.type));
   return ({op, args: actualArgs});
@@ -60,6 +64,30 @@ const genOpcodeForHats = opOverwrite => args => {
   const actualArgs = args.filter(arg => arg && !IGNORE.includes(arg.type));
   return ({op, args: actualArgs});
 };
+
+// %procedurecallsyntax _ %lparen _ %string _ %comma _ procargs _ %rparen
+const procedureCall = ([op, _1, _2, _3, procname, _4, _5, _6, args, _7, _8]) => ({
+  op,
+  args,
+  procname
+});
+
+// %atmark _ %proceduredefinesyntax _ %procedurewarpsyntax _ %lparen _ %string _ %comma _ proctypedargs _ %rparen
+const procedureDefine = (args, warp) => {
+  args.shift();
+  args.shift();
+  const op = args.shift();
+  args.shift();
+  if (warp) {
+    args.shift();
+    args.shift();
+  }
+  args.shift();
+  args.shift();
+  const name = args.shift();
+  const actualArgs = args.filter(arg => arg && !IGNORE.includes(arg.type));
+  return ({op, warp, name, args: actualArgs});
+}
 
 %}
 @lexer lexer
@@ -87,12 +115,27 @@ line -> _W thing _W {% ([_, s, _2]) => s %}
 thing -> callable _ semi {% id %}
 | syntax {% id %}
 
-callable -> %op1arg _ %lparen _ reportable _ %rparen {% genOpcode() %}
+callable -> %op0arg _ %lparen _ %rparen {% genOpcode() %}
+| %opS _ %lparen _ reportable _ %rparen {% genOpcode() %}
+| %opN _ %lparen _ numable _ %rparen {% genOpcode() %}
+| %opM _ %lparen _ menuitem _ %rparen {% genOpcode() %}
+| %opB _ %lparen _ boolable _ %rparen {% genOpcode() %}
+| %opNN _ %lparen _ numable _ %comma _ numable _ %rparen {% genOpcode() %}
+| %opSN _ %lparen _ reportable _ %comma _ numable _ %rparen {% genOpcode() %}
+| %opMN _ %lparen _ menuitem _ %comma _ numable _ %rparen {% genOpcode() %}
+| %opMS _ %lparen _ menuitem _ %comma _ reportable _ %rparen {% genOpcode() %}
+| %opSM _ %lparen _ reportable _ %comma _ menuitem _ %rparen {% genOpcode() %}
+| %opNNN _ %lparen _ numable _ %comma _ numable _ %comma _ numable _ %rparen {% genOpcode() %}
+| %opSNM _ %lparen _ reportable _ %comma _ numable _ %comma _ menuitem _ %rparen {% genOpcode() %}
+| %opNMS _ %lparen _ numable _ %comma _ menuitem _ %comma _ reportable _ %rparen {% genOpcode() %}
+| procedure {% id %}
 
 # at-mark syntax (hat block)
 # @event_whenflagclicked()
 syntax -> %atmark %hat0arg _ %lparen _ %rparen {% genOpcodeForHats() %}
-        | %atmark %hat1arg _ %lparen _ menuitem _  %rparen {% genOpcodeForHats() %}
+        | %atmark %hatM _ %lparen _ menuitem _  %rparen {% genOpcodeForHats() %}
+        | %atmark %hatMN _ %lparen _ menuitem _ %comma _ numable  _  %rparen {% genOpcodeForHats() %}
+        | define {% id %}
         | %foreversyntax _ %lbracket _ script _ %rbracket {% genOpcode("control_forever") %}
         | %ifsyntax _ %lparen _ boolable _ %rparen _ %lbracket _ script _ %rbracket _ %elsesyntax _ %lbracket _ script _ %rbracket {% genOpcode("control_ifelse") %}
         | %untilsyntax _ %lparen _ boolable _ %rparen _ %lbracket _ script _ %rbracket {% genOpcode("control_repeat_until") %}
@@ -106,14 +149,45 @@ numable -> reporter {% id %}
         | %number {% id %}
 
 reporter -> boolreporter {% id %}
-        | %rep0arg _ %lparen _ %rparen {% genOpcode() %}
+| %rep0arg _ %lparen _ %rparen {% genOpcode() %}
+| %repM _ %lparen _ menuitem _ %rparen {% genOpcode() %}
+| %repS _ %lparen _ reportable _ %rparen {% genOpcode() %}
+| %repN _ %lparen _ numable _ %rparen {% genOpcode() %}
+| %repMN _ %lparen _ menuitem _ %comma _ numable _ %rparen {% genOpcode() %}
+| %repMS _ %lparen _ menuitem _ %comma _ reportable _ %rparen {% genOpcode() %}
+| %repNM _ %lparen _ numable _ %comma _ menuitem _ %rparen {% genOpcode() %}
+| %repNS _ %lparen _ numable _ %comma _ reportable _ %rparen {% genOpcode() %}
+| %repNN _ %lparen _ numable _ %comma _ numable _ %rparen {% genOpcode() %}
+| %repSS _ %lparen _ reportable _ %comma _ reportable _ %rparen {% genOpcode() %}
+| %repSM _ %lparen _ reportable _ %comma _ menuitem _ %rparen {% genOpcode() %}
         
 menuitem -> %string {% id %}
 
 boolable -> boolreporter {% id %}
-        | _ {% skip %}
+        | _ {% () => BOOL_EMPTY %}
 
 boolreporter -> %bool0arg _ %lparen _ %rparen {% genOpcode() %}
+| %boolS _ %lparen _ reportable _ %rparen {% genOpcode() %}
+| %boolN _ %lparen _ numable _ %rparen {% genOpcode() %}
+| %boolB _ %lparen _ boolable _ %rparen {% genOpcode() %}
+| %boolM _ %lparen _ menuitem _ %rparen {% genOpcode() %}
+| %boolMS _ %lparen _ menuitem _ %comma _ reportable _ %rparen {% genOpcode() %}
+| %boolNN _ %lparen _ numable _ %comma _ numable _ %rparen {% genOpcode() %}
+| %boolSS _ %lparen _ reportable _ %comma _ reportable _ %rparen {% genOpcode() %}
+| %boolBB _ %lparen _ boolable _ %comma _ boolable _ %rparen {% genOpcode() %}
+
+procedure -> %procedurecallsyntax _ %lparen _ %string _ %comma _ procargs _ %rparen {% d => procedureCall(d) %}
+procargs -> procargs _ %comma _ procarg {% ([arr, _, _1, _2, arg]) => [...arr, arg] %}
+| procarg {% d => d %}
+procarg -> reportable {% id %}
+| _ {% () => BOOL_EMPTY %}
+
+define -> %atmark _ %proceduredefinesyntax _ %lparen _ %string _ %comma _ proctypedargs _ %rparen {% d => procedureDefine(d) %}
+| %atmark _ %proceduredefinesyntax _ %procedurewarpsyntax _ %lparen _ %string _ %comma _ proctypedargs _ %rparen {% d => procedureDefine(d, true) %}
+proctypedargs -> proctypedargs _ %comma _ proctypedarg {% ([]) => [...arr, arg] %}
+| proctypedarg {% d => d %}
+proctypedarg -> %booltype _ %string {% ([type, _, name]) => ({type, name}) %}
+| %reportertype _ %string {% ([type, _, name]) => ({type, name}) %}
 
 _ -> _ %WS {% skip %} | _ %NL {% skip %} | null {% skip %}
 _W -> %WS {% skip %} | null {% skip %}
