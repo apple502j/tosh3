@@ -1,0 +1,24 @@
+{
+  "name": "tosh3",
+  "version": "0.1.0",
+  "description": "tosh for Scratch 3",
+  "main": "src/index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "compile": "npx nearleyc ./src/grammar.ne -o ./src/grammar.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/apple502j/tosh3.git"
+  },
+  "author": "apple502j",
+  "license": "GPL-3.0-or-later",
+  "bugs": {
+    "url": "https://github.com/apple502j/tosh3/issues"
+  },
+  "homepage": "https://github.com/apple502j/tosh3#readme",
+  "dependencies": {
+    "moo": "^0.5.1",
+    "nearley": "^2.20.1"
+  }
+}
