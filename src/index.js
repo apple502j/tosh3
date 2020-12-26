@@ -23,4 +23,5 @@ repeat (strarg("total")) {
   data_changevariableby("return", var("i"));
 }
 `.trim());
-console.dir(parser.results[0], {depth: 15});
+const results = parser.results[0];
+console.dir(results, {depth: 15});
