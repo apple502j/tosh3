@@ -12,7 +12,7 @@ const M = "M";
 const blocks = {
   motion_movesteps: [OP, N],
   motion_gotoxy: [OP, N, N],
-  motion_goto: [OP, S],
+  motion_goto: [[OP, "xy"], S],
   motion_turnright: [OP, N],
   motion_turnleft: [OP, N],
   motion_pointindirection: [OP, N],
@@ -29,14 +29,14 @@ const blocks = {
   motion_yposition: [REPORTER],
   motion_direction: [REPORTER],
   
-  looks_say: [OP, S],
+  looks_say: [[OP, "forsecs"], S],
   looks_sayforsecs: [OP, S, N],
-  looks_think: [OP, S],
+  looks_think: [[OP, "forsecs"], S],
   looks_thinkforsecs: [OP, S, N],
   looks_show: [OP],
   looks_hide: [OP],
   looks_switchcostumeto: [OP, S],
-  looks_switchbackdropto: [OP, S],
+  looks_switchbackdropto: [[OP, "andwait"], S],
   looks_switchbackdroptoandwait: [OP, S],
   looks_nextcostume: [OP],
   looks_nextbackdrop: [OP],
@@ -51,7 +51,7 @@ const blocks = {
   looks_costumenumbername: [REPORTER, M],
   looks_backdropnumbername: [REPORTER, M],
   
-  sound_play: [OP, S],
+  sound_play: [[OP, "untildone"], S],
   sound_playuntildone: [OP, S],
   sound_stopallsounds: [OP],
   sound_seteffectto: [OP, M, N],
@@ -67,10 +67,10 @@ const blocks = {
   event_whenbackdropswitchesto: [HAT, M],
   event_whengreaterthan: [HAT, M, N],
   event_whenbroadcastreceived: [HAT, M],
-  event_broadcast: [OP, S],
+  event_broadcast: [[OP, "andwait"], S],
   event_broadcastandwait: [OP, S],
   
-  control_wait: [OP, N],
+  control_wait: [[OP, "_until"], N],
   control_wait_until: [OP, B],
   control_stop: [OP, M],
   control_create_clone_of: [OP, S],
@@ -101,6 +101,7 @@ const blocks = {
   mul: [REPORTER, N, N],
   div: [REPORTER, N, N],
   mod: [REPORTER, N, N],
+  mt_rand: [REPORTER, N, N],
   lt: [BOOLEAN, S, S],
   eq: [BOOLEAN, S, S],
   strcasecmp: [BOOLEAN, S, S],
@@ -119,6 +120,7 @@ const blocks = {
   operator_multiply: [REPORTER, N, N],
   operator_divide: [REPORTER, N, N],
   operator_mod: [REPORTER, N, N],
+  operator_random: [REPORTER, N, N],
   operator_lt: [BOOLEAN, S, S],
   operator_equals: [BOOLEAN, S, S],
   operator_gt: [BOOLEAN, S, S],
@@ -154,16 +156,35 @@ const blocks = {
   data_hidelist: [OP, M],
   data_showlist: [OP, M],
   
+  strarg: [REPORTER, M],
+  boolarg: [BOOLEAN, M],
+  
   argument_reporter_string_number: [REPORTER, M],
   argument_reporter_boolean: [BOOLEAN, M]
 };
 
-const blocksDefinition = Object.keys(blocks).reduce((acc, cur) => {
-  const currentCat = blocks[cur];
-  if (currentCat.length === 1) currentCat.push(NOARG);
-  const typeName = currentCat.join("");
-  if (typeof acc[typeName] === "undefined") acc[typeName] = [];
-  acc[typeName].push(cur);
+const _blocksDefinition = Object.keys(blocks).reduce((acc, cur) => {
+  const def = blocks[cur];
+  let op = def.shift();
+  let negativeLookahead = "";
+  if (Array.isArray(op)) {
+    negativeLookahead = `(?!${op[1]})`;
+    op = op[0];
+  }
+  if (def.length === 0) def.push(NOARG);
+  const key = op + def.join("");
+  if (typeof acc[key] === "undefined") {
+    acc[key] = "";
+  } else {
+    acc[key] += "|";
+  }
+  acc[key] += cur;
+  acc[key] += negativeLookahead;
+  return acc;
+}, Object.create(null));
+
+const blocksDefinition = Object.keys(_blocksDefinition).reduce((acc, cur) => {
+  acc[cur] = new RegExp(_blocksDefinition[cur]);
   return acc;
 }, Object.create(null));
 
@@ -173,6 +194,7 @@ const aliases = {
   mul: "operator_multiply",
   div: "operator_divide",
   mod: "operator_mod",
+  mt_rand: "operator_random",
   lt: "operator_lt",
   eq: "operator_equals",
   strcasecmp: "operator_equals",
@@ -186,7 +208,9 @@ const aliases = {
   round: "operator_round",
   var: "data_variable",
   assign: "data_setvariableto",
-  list: "data_listcontents"
+  list: "data_listcontents",
+  strarg: "argument_reporter_string_number",
+  boolarg: "argument_reporter_boolean"
 };
 
 module.exports = {blocksDefinition, aliases};

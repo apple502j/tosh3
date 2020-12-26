@@ -4,7 +4,11 @@ const {blocksDefinition, aliases} = require("./blocks.js");
 
 const BOOL_EMPTY = Symbol.for("tosh3.grammar.BOOL_EMPTY");
 
-const normalizeNumber = x => Number(x).toString();
+const normalizeNumber = x => {
+  let n = Number(x).toString();
+  if (x.includes(".") && !n.includes(".")) n += ".0";
+  return n;
+};
 
 const lexer = moo.compile(Object.assign({
   NL: {
@@ -66,14 +70,21 @@ const genOpcodeForHats = opOverwrite => args => {
 };
 
 // %procedurecallsyntax _ %lparen _ %string _ %comma _ procargs _ %rparen
-const procedureCall = ([op, _1, _2, _3, procname, _4, _5, _6, args, _7, _8]) => ({
-  op,
-  args,
-  procname
-});
+const procedureCall = (args, hasArgs) => {
+  const op = args.shift();
+  args.shift();
+  args.shift();
+  args.shift();
+  const procname = args.shift();
+  let actualArgs = [];
+  if (hasArgs) {
+    actualArgs = args.filter(arg => arg && !IGNORE.includes(arg.type));
+  }
+  return ({op, procname, args: actualArgs});
+}
 
 // %atmark _ %proceduredefinesyntax _ %procedurewarpsyntax _ %lparen _ %string _ %comma _ proctypedargs _ %rparen
-const procedureDefine = (args, warp) => {
+const procedureDefine = (args, {hasArgs, warp}) => {
   args.shift();
   args.shift();
   const op = args.shift();
@@ -85,7 +96,10 @@ const procedureDefine = (args, warp) => {
   args.shift();
   args.shift();
   const name = args.shift();
-  const actualArgs = args.filter(arg => arg && !IGNORE.includes(arg.type));
+  let actualArgs = [];
+  if (hasArgs) {
+    actualArgs = args.filter(arg => arg && !IGNORE.includes(arg.type));
+  }
   return ({op, warp, name, args: actualArgs});
 }
 
@@ -102,12 +116,18 @@ scripts -> scripts scriptSep script {% ([scrs, _, scr]) => [...scrs, scr] %}
 
 scriptSep -> %NL _W %NL {% skip %}
            | scriptSep _W %NL {% skip %}
+           | scriptSep %comment %NL {% skip %}
 
 script -> script %NL line {% ([scrs, _, scr]) => [...scrs, scr] %}
-        | line {% ([scr]) => [scr] %}
+        | hatline {% ([scr]) => [scr] %}
+
+hatline -> _W hats _W {% ([_, s, _2]) => s %}
 
 line -> _W thing _W {% ([_, s, _2]) => s %}
 | _W %comment {% skip %}
+
+stacks -> stacks %NL line {% ([scrs, _, scr]) => [...scrs, scr] %}
+        | line {% ([scr]) => [scr] %}
 
 # thing: line without padding
 # callable (=stack block) MAY have semicolon, but it's decorational
@@ -130,16 +150,15 @@ callable -> %op0arg _ %lparen _ %rparen {% genOpcode() %}
 | %opNMS _ %lparen _ numable _ %comma _ menuitem _ %comma _ reportable _ %rparen {% genOpcode() %}
 | procedure {% id %}
 
-# at-mark syntax (hat block)
-# @event_whenflagclicked()
-syntax -> %atmark %hat0arg _ %lparen _ %rparen {% genOpcodeForHats() %}
+hats -> %atmark %hat0arg _ %lparen _ %rparen {% genOpcodeForHats() %}
         | %atmark %hatM _ %lparen _ menuitem _  %rparen {% genOpcodeForHats() %}
         | %atmark %hatMN _ %lparen _ menuitem _ %comma _ numable  _  %rparen {% genOpcodeForHats() %}
         | define {% id %}
-        | %foreversyntax _ %lbracket _ script _ %rbracket {% genOpcode("control_forever") %}
-        | %ifsyntax _ %lparen _ boolable _ %rparen _ %lbracket _ script _ %rbracket _ %elsesyntax _ %lbracket _ script _ %rbracket {% genOpcode("control_ifelse") %}
-        | %untilsyntax _ %lparen _ boolable _ %rparen _ %lbracket _ script _ %rbracket {% genOpcode("control_repeat_until") %}
-        | %repeatsyntax _ %lparen _ numable _ %rparen _ %lbracket _ script _ %rbracket {% genOpcode("control_repeat") %}
+
+syntax -> %foreversyntax _ %lbracket _ stacks _ %rbracket {% genOpcode("control_forever") %}
+        | %ifsyntax _ %lparen _ boolable _ %rparen _ %lbracket _ stacks _ %rbracket _ %elsesyntax _ %lbracket _ stacks _ %rbracket {% genOpcode("control_ifelse") %}
+        | %untilsyntax _ %lparen _ boolable _ %rparen _ %lbracket _ stacks _ %rbracket {% genOpcode("control_repeat_until") %}
+        | %repeatsyntax _ %lparen _ numable _ %rparen _ %lbracket _ stacks _ %rbracket {% genOpcode("control_repeat") %}
 
 reportable -> reporter {% id %}
         | %number {% id %}
@@ -176,16 +195,19 @@ boolreporter -> %bool0arg _ %lparen _ %rparen {% genOpcode() %}
 | %boolSS _ %lparen _ reportable _ %comma _ reportable _ %rparen {% genOpcode() %}
 | %boolBB _ %lparen _ boolable _ %comma _ boolable _ %rparen {% genOpcode() %}
 
-procedure -> %procedurecallsyntax _ %lparen _ %string _ %comma _ procargs _ %rparen {% d => procedureCall(d) %}
+procedure -> %procedurecallsyntax _ %lparen _ %string _ %comma _ procargs _ %rparen {% d => procedureCall(d, true) %}
+| %procedurecallsyntax _ %lparen _ %string _  %rparen {% d => procedureCall(d, false) %}
 procargs -> procargs _ %comma _ procarg {% ([arr, _, _1, _2, arg]) => [...arr, arg] %}
 | procarg {% d => d %}
 procarg -> reportable {% id %}
 | _ {% () => BOOL_EMPTY %}
 
-define -> %atmark _ %proceduredefinesyntax _ %lparen _ %string _ %comma _ proctypedargs _ %rparen {% d => procedureDefine(d) %}
-| %atmark _ %proceduredefinesyntax _ %procedurewarpsyntax _ %lparen _ %string _ %comma _ proctypedargs _ %rparen {% d => procedureDefine(d, true) %}
-proctypedargs -> proctypedargs _ %comma _ proctypedarg {% ([]) => [...arr, arg] %}
-| proctypedarg {% d => d %}
+define -> %atmark _ %proceduredefinesyntax _ %lparen _ %string _ %comma _ proctypedargs _ %rparen {% d => procedureDefine(d, {hasArgs: true}) %}
+| %atmark _ %proceduredefinesyntax _ %procedurewarpsyntax _ %lparen _ %string _ %comma _ proctypedargs _ %rparen {% d => procedureDefine(d, {hasArgs: true, warp: true}) %}
+| %atmark _ %proceduredefinesyntax _ %lparen _ %string _ %rparen {% d => procedureDefine(d, {hasArgs: false}) %}
+| %atmark _ %proceduredefinesyntax _ %procedurewarpsyntax _ %lparen _ %string _  %rparen {% d => procedureDefine(d, {hasArgs: false, warp: true}) %}
+proctypedargs -> proctypedargs _ %comma _ proctypedarg {% ([arr, _, _2, _3, arg]) => [...arr, arg] %}
+| proctypedarg {% id %}
 proctypedarg -> %booltype _ %string {% ([type, _, name]) => ({type, name}) %}
 | %reportertype _ %string {% ([type, _, name]) => ({type, name}) %}
 

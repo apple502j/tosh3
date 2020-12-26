@@ -1,7 +1,10 @@
 const nearley = require("nearley");
+const HumanDiff = require('human-object-diff');
 const grammar = require("./grammar.js");
 
 const parser = new nearley.Parser(nearley.Grammar.fromCompiled(grammar));
+
+const { diff } = new HumanDiff({});
 
 parser.feed(`
 @event_whenflagclicked()
@@ -10,13 +13,14 @@ data_showvariable("variable");
 procedure_call("sum", 100);
 assign("variable", var("return"));
 
+// total is expected to be integer
 @define warp("sum", reporter "total")
 assign("i", 0);
 assign("return", 0b0);
-repeat (argument_reporter_string_number("total")) {
+// Slow but works
+repeat (strarg("total")) {
   data_changevariableby("i", 1);
   data_changevariableby("return", var("i"));
 }
 `.trim());
-
 console.dir(parser.results[0], {depth: 15});
