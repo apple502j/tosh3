@@ -157,6 +157,7 @@ hats -> %atmark %hat0arg _ %lparen _ %rparen {% genOpcodeForHats() %}
 
 syntax -> %foreversyntax _ %lbracket _ stacks _ %rbracket {% genOpcode("control_forever") %}
         | %ifsyntax _ %lparen _ boolable _ %rparen _ %lbracket _ stacks _ %rbracket _ %elsesyntax _ %lbracket _ stacks _ %rbracket {% genOpcode("control_ifelse") %}
+                | %ifsyntax _ %lparen _ boolable _ %rparen _ %lbracket _ stacks _ %rbracket _ {% genOpcode("control_if") %}
         | %untilsyntax _ %lparen _ boolable _ %rparen _ %lbracket _ stacks _ %rbracket {% genOpcode("control_repeat_until") %}
         | %repeatsyntax _ %lparen _ numable _ %rparen _ %lbracket _ stacks _ %rbracket {% genOpcode("control_repeat") %}
 

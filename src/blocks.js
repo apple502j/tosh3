@@ -213,4 +213,6 @@ const aliases = {
   boolarg: "argument_reporter_boolean"
 };
 
-module.exports = {blocksDefinition, aliases};
+const cap = ["control_forever", "control_delete_this_clone"];
+
+module.exports = {blocksDefinition, aliases, cap};
