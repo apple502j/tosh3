@@ -1,5 +1,5 @@
 const {generateID, fail, assert} = require("./util.js");
-const {cap} = require("./blocks.js");
+const {blocksDefinition, cap} = require("./blocks.js");
 
 const BOOL_EMPTY = Symbol.for("tosh3.grammar.BOOL_EMPTY");
 
@@ -134,9 +134,10 @@ class Procedure {
 }
 
 class Validator {
-  constructor (project, target) {
+  constructor (project, target, procedureMap) {
     this.project = project;
     this.target = target;
+    this.procedureMap = procedureMap;
     
     this._stage = project.targets.find(t => t.isStage);
     assert(this._stage, "Stage not found");
@@ -197,6 +198,50 @@ class Validator {
     return assert(this._getVariableForTarget(target, value), `sensing_of received invalid argument: ${value}`);
   }
   
+  validateArguments (block) {
+    if (block.op.type === "procedurecallsyntax") {
+      const proc = this.procedureMap[block.proname.value];
+      assert(proc, `Unknown procedure passed to procedure_call: ${procname}`);
+      proc.matchesType(block.args);
+    }
+    const {args} = block;
+    if (blocksDefinition[block.op.value]) {
+      const def = blocksDefinition[block.op.value].slice(0);
+      def.shift();
+      if (def[0].code === "0arg") return assert(args.length === 0, `Expected no arguments but found ${args.length}`);
+      assert(args.length === def.length, `Argument count mismatch: expected ${def.length}, found ${args.length}`);
+      let i = -1;
+      for (const argDef of def) {
+        i++;
+        const arg = args[i];
+        let handled = true;
+        switch (argDef.inputName) {
+          case "VARIABLE":
+            this.validateVariable(arg.value);
+            break;
+          case "LIST":
+            this.validateList(arg.value);
+            break;
+          case "BROADCAST_OPTION":
+            this.validateBroadcast(arg.value);
+            break;
+          case "PROPERTY":
+            this.validateSensingOf(args[1], arg.value);
+            break;
+          default:
+            handled = false;
+        }
+        if (handled) continue;
+        if (block.op.value === "event_whenbackdropswitchesto") {
+          this.validateBackdrop(arg.value);
+          continue;
+        }
+        assert(argDef.isValid(arg.value), `Invalid argument value ${arg.value} for ${block.op.value}[${i}]`);
+      }
+      return true;
+    }
+  }
+  
   isCap (block) {
     return cap.includes(block.op) || (block.op === "control_stop" && block.args[0].value !== 	"other scripts in sprite");
   }
@@ -204,8 +249,14 @@ class Validator {
 
 const generateJSON = (result, project, spriteName) => {
   const sorted = sort(result.slice(0));
-  const procedureMap = Object.create(null);
   const blocksRef = {};
+  const procedureMap = Object.create(null);
+  for (const script of sorted) {
+    const top = script[0];
+    if (top.op.type === "proceduredefinesyntax") {
+      procedureMap[top.name.value] = new Procedure(top.name.value, top.warp, top.args, blocksRef);
+    }
+  }  
   const editingTarget = project.targets.find(t => t.name === spriteName);
   let x = 0;
   let y = 0;
@@ -218,5 +269,18 @@ const generateJSON = (result, project, spriteName) => {
     return [x*10, y*10];
   };
   
-  const validator = new Validator(project, editingTarget);
+  const validator = new Validator(project, editingTarget, procedureMap);
+  
+  const makeStackBlock = (block, parentId) => {
+    const blockId = generateID();
+    if (parentId) blocksRef[parentId].next = blockId;
+    const newBlock = {
+      opcode: block.op,
+      parent: parentId || null,
+      next: null,
+      shadow: false,
+      topLevel: false
+    };
+    return blockId;
+  }
 };

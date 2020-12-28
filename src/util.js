@@ -13,7 +13,7 @@ const fail = (cond, message, cls = Tosh3SyntaxError) => {
   if (cond) throw new cls(message);
 };
 
-const asert = (cond, message, cls = Tosh3SyntaxError) => {
+const assert = (cond, message, cls = Tosh3SyntaxError) => {
   if (!cond) throw new cls(message);
   return true;
 };

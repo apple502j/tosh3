@@ -8,7 +8,10 @@ const NOARG = {code: "0arg"};
 class ArgType {
   constructor (inputName) {
     this.inputName = inputName;
-  }  
+  }
+  isValid () {
+    return true;
+  }
 }
 
 class StringType extends ArgType {
@@ -33,11 +36,24 @@ class BooleanType extends ArgType {
 const B = (...args) => new BooleanType(...args);
 
 class MenuType extends ArgType {
+  constructor (inputName, possibleOpts) {
+    super(inputName);
+    this.possibleOpts = possibleOpts || null;
+  }
   get code () {
     return "M";
   }
+  isValid (value) {
+    if (this.possibleOpts === null) return undefined;
+    return this.possibleOpts.includes(value);
+  }
 }
 const M = (...args) => new MenuType(...args);
+
+const LOOKS_EFFECTS = ["COLOR", "FISHEYE", "WHIRL", "PIXELATE", "MOSAIC", "BRIGHTNESS", "GHOST"];
+const NUMBER_NAME = ["number", "name"];
+const SOUND_EFFECTS = ["PITCH", "PAN"];
+const KEY_OPTION = ["space", "up arrow", "down arrow", "left arrow", "right arrow", "any", ..."abcdefghijklmnopqrstuvwxyz0123456789"];
 
 const blocks = {
   motion_movesteps: [OP, N("STEPS")],
@@ -50,7 +66,7 @@ const blocks = {
   motion_glidesecstoxy: [OP, N("SECS"), N("X"), N("Y")],
   motion_glideto: [OP, N("SECS"), S("TO")],
   motion_ifonedgebounce: [OP],
-  motion_setrotationstyle: [OP, M("STYLE")],
+  motion_setrotationstyle: [OP, M("STYLE", ["left-right", "don't rotate", "all around"])],
   motion_changexby: [OP, N("DX")],
   motion_setx: [OP, N("X")],
   motion_changeyby: [OP, N("DY")],
@@ -70,39 +86,39 @@ const blocks = {
   looks_switchbackdroptoandwait: [OP, S("BACKDROP")],
   looks_nextcostume: [OP],
   looks_nextbackdrop: [OP],
-  looks_changeeffectby: [OP, M("EFFECT"), N("CHANGE")],
-  looks_seteffectto: [OP, M("EFFECT"), N("VALUE")],
+  looks_changeeffectby: [OP, M("EFFECT", LOOKS_EFFECTS), N("CHANGE")],
+  looks_seteffectto: [OP, M("EFFECT", LOOKS_EFFECTS), N("VALUE")],
   looks_cleargraphiceffects: [OP],
   looks_changesizeby: [OP, N("CHANGE")],
   looks_setsizeto: [OP, N("SIZE")],
-  looks_gotofrontback: [OP, M("FRONT_BACK")],
-  looks_goforwardbackwardlayers: [OP, M("FORWARD_BACKWARD"), N("NUM")],
+  looks_gotofrontback: [OP, M("FRONT_BACK", ["front", "back"])],
+  looks_goforwardbackwardlayers: [OP, M("FORWARD_BACKWARD", ["forward", "backward"]), N("NUM")],
   looks_size: [REPORTER],
-  looks_costumenumbername: [REPORTER, M("NUMBER_NAME")],
-  looks_backdropnumbername: [REPORTER, M("NUMBER_NAME")],
+  looks_costumenumbername: [REPORTER, M("NUMBER_NAME", NUMBER_NAME)],
+  looks_backdropnumbername: [REPORTER, M("NUMBER_NAME", NUMBER_NAME)],
   
   sound_play: [[OP, "untildone"], S("SOUND_MENU")],
   sound_playuntildone: [OP, S("SOUND_MENU")],
   sound_stopallsounds: [OP],
-  sound_seteffectto: [OP, M("EFFECT"), N("VALUE")],
-  sound_changeeffectby: [OP, M("EFFECT"), N("VALUE")],
+  sound_seteffectto: [OP, M("EFFECT", SOUND_EFFECTS), N("VALUE")],
+  sound_changeeffectby: [OP, M("EFFECT", SOUND_EFFECTS), N("VALUE")],
   sound_cleareffects: [OP],
   sound_setvolumeto: [OP, N("VOLUME")],
   sound_changevolumeby: [OP, N("VOLUME")],
   sound_volume: [REPORTER],
   
   event_whenflagclicked: [HAT],
-  event_whenkeypressed: [HAT, M("KEY_OPTION")],
+  event_whenkeypressed: [HAT, M("KEY_OPTION", KEY_OPTION)],
   event_whenthisspriteclicked: [HAT],
   event_whenbackdropswitchesto: [HAT, M("BACKDROP")],
-  event_whengreaterthan: [HAT, M("WHENGREATERTHANMENU"), N("VALUE")],
+  event_whengreaterthan: [HAT, M("WHENGREATERTHANMENU", ["LOUDNESS", "TIMER"]), N("VALUE")],
   event_whenbroadcastreceived: [HAT, M("BROADCAST_OPTION")],
   event_broadcast: [[OP, "andwait"], S("BROADCAST_INPUT")],
   event_broadcastandwait: [OP, S("BROADCAST_INPUT")],
   
   control_wait: [[OP, "_until"], N("DURATION")],
   control_wait_until: [OP, B("CONDITION")],
-  control_stop: [OP, M("STOP_OPTION")],
+  control_stop: [OP, M("STOP_OPTION", ["all", "this script", "other scripts in sprite"])],
   control_create_clone_of: [OP, S("CLONE_OPTION")],
   control_delete_this_clone: [OP],
   
@@ -115,10 +131,10 @@ const blocks = {
   sensing_of: [REPORTER, M("PROPERTY"), S("OBJECT")],
   sensing_mousex: [REPORTER],
   sensing_mousey: [REPORTER],
-  sensing_setdragmode: [OP, M("DRAG_MODE")],
+  sensing_setdragmode: [OP, M("DRAG_MODE", ["draggable", "not draggable"])],
   sensing_mousedown: [BOOLEAN],
   sensing_keypressed: [BOOLEAN, S("KEY_OPTION")],
-  sensing_current: [REPORTER, M("CURRENTMENU")],
+  sensing_current: [REPORTER, M("CURRENTMENU", ["YEAR", "MONTH", "DATE", "DAYOFWEEK", "HOUR", "MINUTE", "SECOND"])],
   sensing_dayssince2000: [REPORTER],
   sensing_loudness: [REPORTER],
   sensing_askandwait: [OP, S("QUESTION")],
@@ -162,7 +178,7 @@ const blocks = {
   operator_length: [REPORTER, S("STRING")],
   operator_contains: [BOOLEAN, S("STRING1"), S("STRING2")],
   operator_round: [REPORTER, N("NUM")],
-  operator_mathop: [REPORTER, M("OPERATOR"), N("NUM")],
+  operator_mathop: [REPORTER, M("OPERATOR", ["abs", "floor", "ceiling", "sqrt", "sin", "cos", "tan", "asin", "acos", "atan", "ln", "log", "e ^", "10 ^"]), N("NUM")],
   
   var: [REPORTER, M("VARIABLE")],
   assign: [OP, M("VARIABLE"), S("VALUE")],
