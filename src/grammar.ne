@@ -55,8 +55,8 @@ const IGNORE = ["lparen", "rparen", "lbracket", "rbracket", "elsesyntax", "comma
 
 const genOpcode = opOverwrite => args => {
   let op = args.shift();
-  if (aliases[op]) op = aliases[op];
-  if (opOverwrite) op = opOverwrite;
+  if (aliases[op]) op = {value: aliases[op]};
+  if (opOverwrite) op = {value: opOverwrite};
   const actualArgs = args.filter(arg => arg && !IGNORE.includes(arg.type));
   return ({op, args: actualArgs});
 };
@@ -64,7 +64,7 @@ const genOpcode = opOverwrite => args => {
 const genOpcodeForHats = opOverwrite => args => {
   args.shift();
   let op = args.shift();
-  if (opOverwrite) op = opOverwrite;
+  if (opOverwrite) op = {value: opOverwrite};
   const actualArgs = args.filter(arg => arg && !IGNORE.includes(arg.type));
   return ({op, args: actualArgs});
 };

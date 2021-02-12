@@ -1,5 +1,5 @@
 const {generateID, fail, assert} = require("./util.js");
-const {blocksDefinition, cap} = require("./blocks.js");
+const {blocks: blocksDefinition, cBlocks: cBlockDefinition, cap, BooleanType} = require("./blocks.js");
 
 const BOOL_EMPTY = Symbol.for("tosh3.grammar.BOOL_EMPTY");
 
@@ -111,7 +111,7 @@ class Procedure {
         argumentdefaults: JSON.stringify(
           this.args.map(arg => arg.type.type === "boolreporter" ? "false" : "")
         ),
-        warp: String(this.warp)
+        warp: String(!!this.warp)
       }
     };
     
@@ -133,14 +133,18 @@ class Procedure {
   }
 }
 
-class Validator {
-  constructor (project, target, procedureMap) {
+class Generator {
+  constructor (project, target, procedureMap, blocksRef) {
     this.project = project;
     this.target = target;
     this.procedureMap = procedureMap;
+    this.blocksRef = blocksRef;
     
     this._stage = project.targets.find(t => t.isStage);
     assert(this._stage, "Stage not found");
+    
+    this._shadowBroadcastID = generateID();
+    this._stage.broadcasts[this._shadowBroadcastID] = this._shadowBroadcastID;
   }
   
   validateBackdrop (name) {
@@ -195,38 +199,91 @@ class Validator {
       target = this.target;
       if (["costume #", "costume name", "x position", "y position", "direction", "size"].includes(value)) return true;
     }
-    return assert(this._getVariableForTarget(target, value), `sensing_of received invalid argument: ${value}`);
+    assert(this._getVariableForTarget(target, value), `sensing_of received invalid argument: ${value}`);
+    return value;
   }
   
-  validateArguments (block) {
+  validateAndAddBlock (block, parentId) {
     if (block.op.type === "procedurecallsyntax") {
       const proc = this.procedureMap[block.proname.value];
       assert(proc, `Unknown procedure passed to procedure_call: ${procname}`);
       proc.matchesType(block.args);
     }
-    const {args} = block;
-    if (blocksDefinition[block.op.value]) {
-      const def = blocksDefinition[block.op.value].slice(0);
+    const blockId = generateID();
+    const sb3Block = {
+      shadow: false,
+      opcode: block.op.value,
+      parent: parentId || null,
+      next: null,
+      fields: {},
+      inputs: {},
+      topLevel: block.op.type && block.op.type.startsWith("hat")
+    };
+    let {args} = block;
+    const isCBlock = cBlockDefinition[block.op.value];
+    let substacks = [];
+    if (isCBlock) {
+      substacks = args.slice(1);
+      args = [args[0]];
+    }
+    if (blocksDefinition[block.op.value] || isCBlock) {
+      const def = (blocksDefinition[block.op.value] || isCBlock).slice(0);
       def.shift();
-      if (def[0].code === "0arg") return assert(args.length === 0, `Expected no arguments but found ${args.length}`);
       assert(args.length === def.length, `Argument count mismatch: expected ${def.length}, found ${args.length}`);
       let i = -1;
       for (const argDef of def) {
         i++;
         const arg = args[i];
+        if (arg === BOOL_EMPTY) continue;
+        const blockInputRepr = [];
+        if (arg.op && arg.args) {
+          // Block inserted. Not fields.
+          if (arg.op.value === "data_variable" || arg.op.value === "data_listcontents") {
+            const insertedBlockRepr = [];
+            const varId = arg.args[0].value;
+            if (arg.op.value === "data_variable") {
+              insertedBlockRepr.push(12);
+              insertedBlockRepr.push(varId);
+              insertedBlockRepr.push(this.validateVariable(varId));
+            } else {
+              insertedBlockRepr.push(13);
+              insertedBlockRepr.push(varId);
+              insertedBlockRepr.push(this.validateList(varId));
+            }
+            blockInputRepr.push(3);
+            blockInputRepr.push(insertedBlockRepr);
+            blockInputRepr.push(argDef.shadow());
+            sb3Block.inputs[argDef.inputName] = blockInputRepr;
+            continue;
+          }
+          blockInputRepr.push(this.validateAndAddBlock(arg, blockId));
+          if (argDef instanceof BooleanType) {
+            blockInputRepr.unshift(2);
+          } else {
+            blockInputRepr.unshift(3);
+            if (argDef.inputName === "BROADCAST_INPUT") {
+              blockInputRepr.push([11, this._shadowBroadcastID, this._shadowBroadcastID]);
+            } else {
+              blockInputRepr.push(argDef.shadow());
+            }            
+          }
+          sb3Block.inputs[argDef.inputName] = blockInputRepr;
+          continue;
+        }
+        // Not boolean.
         let handled = true;
         switch (argDef.inputName) {
           case "VARIABLE":
-            this.validateVariable(arg.value);
+            sb3Block.fields.VARIABLE = [arg.value, this.validateVariable(arg.value)];
             break;
           case "LIST":
-            this.validateList(arg.value);
+            sb3Block.fields.LIST = [arg.value, this.validateList(arg.value)];
             break;
           case "BROADCAST_OPTION":
-            this.validateBroadcast(arg.value);
+            sb3Block.fields.BROADCAST_OPTION = [arg.value, this.validateBroadcast(arg.value)];
             break;
           case "PROPERTY":
-            this.validateSensingOf(args[1], arg.value);
+            sb3Block.fields.PROPERTY = [this.validateSensingOf(args[1], arg.value), null];
             break;
           default:
             handled = false;
@@ -234,9 +291,12 @@ class Validator {
         if (handled) continue;
         if (block.op.value === "event_whenbackdropswitchesto") {
           this.validateBackdrop(arg.value);
+          sb3Block.fields.BACKDROP = [arg.value, null];
           continue;
         }
-        assert(argDef.isValid(arg.value), `Invalid argument value ${arg.value} for ${block.op.value}[${i}]`);
+        const validity = argDef.isValid(arg.value);
+        const invalidMsg = `Invalid argument value ${arg.value} for ${block.op.value}[${i}]`;
+        fail(validity === false, invalidMsg);
       }
       return true;
     }
@@ -269,7 +329,7 @@ const generateJSON = (result, project, spriteName) => {
     return [x*10, y*10];
   };
   
-  const validator = new Validator(project, editingTarget, procedureMap);
+  const generator = new Generator(project, editingTarget, procedureMap, blocksRef);
   
   const makeStackBlock = (block, parentId) => {
     const blockId = generateID();

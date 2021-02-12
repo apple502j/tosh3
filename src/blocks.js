@@ -9,14 +9,29 @@ class ArgType {
   constructor (inputName) {
     this.inputName = inputName;
   }
+  get code () {
+    throw new Error("Subclass must implement this.");
+  }
+  shadow () {
+    throw new Error("Subclass must implement this.");
+  }
   isValid () {
+    return undefined;
+  }
+  get acceptsBlock () {
     return true;
+  }
+  get typeConst () {
+    return this.shadow()[0];
   }
 }
 
 class StringType extends ArgType {
   get code () {
     return "S";
+  }
+  shadow () {
+    return [10, ""];
   }
 }
 const S = (...args) => new StringType(...args);
@@ -25,8 +40,18 @@ class NumberType extends ArgType {
   get code () {
     return "N";
   }
+  shadow () {
+    return [4, 0];
+  }
 }
 const N = (...args) => new NumberType(...args);
+
+class AngleType extends NumberType {
+  shadow () {
+    return [8, 0];
+  }
+}
+const A = (...args) => new AngleType(...args);
 
 class BooleanType extends ArgType {
   get code () {
@@ -46,6 +71,9 @@ class MenuType extends ArgType {
   isValid (value) {
     if (this.possibleOpts === null) return undefined;
     return this.possibleOpts.includes(value);
+  }
+  get acceptsBlock () {
+    return false;
   }
 }
 const M = (...args) => new MenuType(...args);
@@ -209,6 +237,13 @@ const blocks = {
   argument_reporter_boolean: [BOOLEAN, M("VALUE")]
 };
 
+const cBlocks = {
+  control_ifelse: [OP, B("CONDITION")],
+  control_if: [OP, B("CONDITION")],
+  control_repeat: [OP, N("TIMES")],
+  control_repeat_until: [OP, B("CONDITION")]
+};
+
 const _blocksDefinition = Object.keys(blocks).reduce((acc, cur) => {
   const def = blocks[cur];
   let op = def.shift();
@@ -261,4 +296,4 @@ const aliases = {
 
 const cap = ["control_forever", "control_delete_this_clone"];
 
-module.exports = {blocksDefinition, aliases, cap};
+module.exports = {blocks, blocksDefinition, cBlockDefinition, aliases, cap, StringType, NumberType, BooleanType, MenuType};

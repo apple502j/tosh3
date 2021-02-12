@@ -10,7 +10,7 @@ parser.feed(`
 @event_whenflagclicked()
 assign("variable", 0);
 data_showvariable("variable");
-procedure_call("sum", 100);
+procedure_call("sum", data_variable("a"));
 assign("variable", var("return"));
 
 // total is expected to be integer
